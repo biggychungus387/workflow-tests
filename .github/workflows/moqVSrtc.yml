@@ -152,7 +152,7 @@ jobs:
           }
           EOF
 
-          node /tmp/host.mjs
+          node host.mjs
 
       - name: Keep alive
         run: sleep 21600
