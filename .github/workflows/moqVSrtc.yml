@@ -1,10 +1,13 @@
-name: MoQ WebRTC Test
+name: MoQ vs WebRTC
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  test:
+  benchmark:
     runs-on: ubuntu-latest
 
     steps:
@@ -13,146 +16,306 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install dependencies
+      - name: Install
         run: npm install @moq/net werift
 
-      - name: Start host
-        env:
-          NODE_NO_WARNINGS: "1"
+      - name: Start benchmark host
         run: |
           cat > host.mjs <<'EOF'
           import * as Moq from "@moq/net";
           import { RTCPeerConnection } from "werift";
 
           const RELAY = "https://cdn.moq.pro/anon";
-          const ROOM = "os-in-browser-webrtc-test";
-          const STUN = "stun:stun.l.google.com:19302";
 
-          console.log("Connecting to MoQ...");
+          // Static IDs.
+          const MOQ_TEST = "os-in-browser-moq-latency";
+          const SIGNAL = "os-in-browser-webrtc-signaling";
+
+          const BROWSER_TO_HOST = "browser-to-host";
+          const HOST_TO_BROWSER = "host-to-browser";
+
+          console.log("Connecting to MoQ Pro...");
 
           const connection = await Moq.Connection.connect(
             new URL(RELAY)
           );
 
-          console.log("MoQ connected");
-
-          const path = Moq.Path.from(ROOM);
+          console.log("✓ MoQ connected");
 
           /*
-           * One broadcast:
+           * ============================================================
+           * MOQT ECHO
+           * ============================================================
            *
-           *   browser -> host
-           *   host    -> browser
+           * Browser publishes:
            *
-           * Each direction has its own track.
+           *   os-in-browser-moq-latency/browser
+           *
+           * Host consumes it and echoes every frame through:
+           *
+           *   os-in-browser-moq-latency/host
            */
-          const broadcast = new Moq.Broadcast.Producer();
 
-          connection.publish(path, broadcast);
+          const browserPath =
+            Moq.Path.from(`${MOQ_TEST}/browser`);
 
-          const browserToHost = broadcast.createTrack(
-            "browser-to-host"
+          const hostPath =
+            Moq.Path.from(`${MOQ_TEST}/host`);
+
+          const hostBroadcast =
+            new Moq.Broadcast.Producer();
+
+          connection.publish(
+            hostPath,
+            hostBroadcast
           );
 
-          const hostToBrowser = broadcast.createTrack(
-            "host-to-browser"
-          );
+          const hostTrack =
+            hostBroadcast.createTrack("echo");
 
-          console.log(`Broadcast: ${ROOM}`);
-          console.log("Waiting for browser...");
+          const browserConsumer =
+            connection
+              .consume(browserPath)
+              .track("echo")
+              .subscribe({
+                priority: 100,
+              });
+
+          console.log("✓ MoQ echo endpoint ready");
 
           /*
-           * WebRTC host.
-           *
-           * STUN only.
-           * No TURN server.
+           * Echo MoQ latency packets.
            */
+          (async () => {
+            for (;;) {
+              const group =
+                await browserConsumer.recvGroup();
+
+              if (!group)
+                break;
+
+              for (;;) {
+                const frame =
+                  await group.readFrame();
+
+                if (!frame)
+                  break;
+
+                hostTrack.writeFrame(
+                  frame.timestamp,
+                  frame.payload
+                );
+              }
+            }
+          })().catch(console.error);
+
+          /*
+           * ============================================================
+           * WEBRTC
+           * ============================================================
+           */
+
+          const signalPath =
+            Moq.Path.from(SIGNAL);
+
+          const signalBroadcast =
+            new Moq.Broadcast.Producer();
+
+          connection.publish(
+            signalPath,
+            signalBroadcast
+          );
+
+          const signalTrack =
+            signalBroadcast.createTrack("signal");
+
+          const signalConsumer =
+            connection
+              .consume(
+                Moq.Path.from(SIGNAL + "/browser")
+              )
+              .track("signal")
+              .subscribe({
+                priority: 100,
+              });
+
+          console.log("✓ WebRTC signaling ready");
+
           const pc = new RTCPeerConnection({
             iceServers: [
               {
-                urls: STUN,
+                urls: "stun:stun.l.google.com:19302",
               },
             ],
           });
 
+          /*
+           * WebRTC DataChannel echo.
+           */
           pc.ondatachannel = ({ channel }) => {
-            console.log("WebRTC DataChannel:", channel.label);
-
-            channel.onmessage = ({ data }) => {
-              /*
-               * Echo timestamp back to browser.
-               *
-               * This is what the browser uses to measure
-               * actual WebRTC RTT.
-               */
-              channel.send(data);
-            };
+            console.log(
+              "WebRTC DataChannel:",
+              channel.label
+            );
 
             channel.onopen = () => {
-              console.log("WebRTC DataChannel OPEN");
+              console.log(
+                "✓ WebRTC DataChannel OPEN"
+              );
             };
 
-            channel.onclose = () => {
-              console.log("WebRTC DataChannel CLOSED");
+            channel.onmessage = ({ data }) => {
+              channel.send(data);
             };
           };
 
           /*
-           * Read signaling messages from the browser.
+           * Wait until ICE gathering completes.
+           *
+           * This means we can send one complete SDP instead
+           * of implementing trickle ICE in the benchmark.
            */
-          const consumer = broadcast
-            .track("browser-to-host")
-            .subscribe({
-              priority: 100,
+          function waitForIceGathering(pc) {
+            if (
+              pc.iceGatheringState === "complete"
+            ) {
+              return Promise.resolve();
+            }
+
+            return new Promise(resolve => {
+              const previous =
+                pc.onicegatheringstatechange;
+
+              pc.onicegatheringstatechange = event => {
+                previous?.(event);
+
+                if (
+                  pc.iceGatheringState ===
+                  "complete"
+                ) {
+                  resolve();
+                }
+              };
             });
+          }
 
-          console.log("Subscribed to browser signaling");
-
-          for (;;) {
-            const group = await consumer.recvGroup();
-
-            if (!group)
-              break;
-
+          /*
+           * Receive signaling from browser.
+           */
+          (async () => {
             for (;;) {
-              const frame = await group.readFrame();
+              const group =
+                await signalConsumer.recvGroup();
 
-              if (!frame)
+              if (!group)
                 break;
 
-              const message = JSON.parse(
-                new TextDecoder().decode(frame.payload)
-              );
+              for (;;) {
+                const frame =
+                  await group.readFrame();
 
-              console.log("Signaling:", message.type);
+                if (!frame)
+                  break;
 
-              if (message.type === "offer") {
-                await pc.setRemoteDescription(
-                  message.description
+                const message =
+                  JSON.parse(
+                    new TextDecoder().decode(
+                      frame.payload
+                    )
+                  );
+
+                console.log(
+                  "← signaling:",
+                  message.type
                 );
 
-                const answer = await pc.createAnswer();
+                if (
+                  message.type === "offer"
+                ) {
+                  await pc.setRemoteDescription(
+                    message.description
+                  );
 
-                await pc.setLocalDescription(answer);
+                  const answer =
+                    await pc.createAnswer();
 
-                hostToBrowser.writeJson({
-                  type: "answer",
-                  description: pc.localDescription,
-                });
+                  await pc.setLocalDescription(
+                    answer
+                  );
 
-                console.log("Sent answer");
-              }
+                  await waitForIceGathering(
+                    pc
+                  );
 
-              if (message.type === "candidate") {
-                await pc.addIceCandidate(
-                  message.candidate
-                );
+                  signalTrack.writeFrame(
+                    0,
+                    new TextEncoder().encode(
+                      JSON.stringify({
+                        type: "answer",
+                        description:
+                          pc.localDescription,
+                      })
+                    )
+                  );
+
+                  console.log(
+                    "→ answer sent"
+                  );
+                }
               }
             }
-          }
+          })().catch(console.error);
+
+          pc.onconnectionstatechange = () => {
+            console.log(
+              "WebRTC connection:",
+              pc.connectionState
+            );
+          };
+
+          pc.oniceconnectionstatechange = () => {
+            console.log(
+              "WebRTC ICE:",
+              pc.iceConnectionState
+            );
+          };
+
+          console.log("");
+          console.log(
+            "========================================"
+          );
+          console.log(
+            "Benchmark host is ready."
+          );
+          console.log(
+            "========================================"
+          );
+          console.log("");
+          console.log(
+            "MoQ test:"
+          );
+          console.log(
+            `  ${MOQ_TEST}/browser`
+          );
+          console.log("");
+          console.log(
+            "WebRTC signaling:"
+          );
+          console.log(
+            `  ${SIGNAL}`
+          );
+          console.log("");
+          console.log(
+            "Waiting for browser..."
+          );
+
+          /*
+           * Keep the process alive.
+           */
+          await new Promise(() => {});
           EOF
 
           node host.mjs
 
-      - name: Keep alive
+      - name: Keep runner alive
         run: sleep 21600
