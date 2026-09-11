@@ -81,8 +81,6 @@ jobs:
               ;;
 
             macOS)
-              brew update
-              brew upgrade
               brew tap LizardByte/homebrew
               brew install sunshine
               ;;
