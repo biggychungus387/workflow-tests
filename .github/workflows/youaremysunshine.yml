@@ -25,6 +25,7 @@ jobs:
     runs-on: ${{ inputs.os }}
 
     steps:
+
       # ─────────────────────────────────────────────
       # Linux virtual desktop + audio
       # ─────────────────────────────────────────────
@@ -61,7 +62,7 @@ jobs:
 
 
       # ─────────────────────────────────────────────
-      # Native Sunshine installation
+      # Install Sunshine
       # ─────────────────────────────────────────────
 
       - name: Install Sunshine
@@ -76,7 +77,6 @@ jobs:
               sudo apt-get update
               sudo apt-get install -y sunshine
 
-              # We're using X11 capture, not KMS.
               sudo setcap -r "$(readlink -f "$(which sunshine)")"
               ;;
 
@@ -100,17 +100,53 @@ jobs:
 
 
       # ─────────────────────────────────────────────
-      # Tailscale
+      # Install Tailscale
+      # ─────────────────────────────────────────────
+
+      - name: Install Tailscale
+        run: |
+          case "$RUNNER_OS" in
+
+            Linux)
+              curl -fsSL https://tailscale.com/install.sh | sh
+              ;;
+
+            macOS)
+              brew install --quiet tailscale
+              brew services start tailscale
+              ;;
+
+            Windows)
+              curl.exe -L \
+                -o "$RUNNER_TEMP/tailscale.msi" \
+                "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+
+              msiexec.exe \
+                /i "$RUNNER_TEMP/tailscale.msi" \
+                /quiet \
+                /norestart
+              ;;
+
+          esac
+
+
+      # ─────────────────────────────────────────────
+      # Connect to Tailscale using OAuth
       # ─────────────────────────────────────────────
 
       - name: Connect to Tailscale
-        uses: tailscale/github-action@v4
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+        run: |
+          sudo tailscale up \
+            --client-id="$TS_OAUTH_CLIENT_ID" \
+            --client-secret="$TS_OAUTH_SECRET" \
+            --advertise-tags=tag:ci
 
 
       # ─────────────────────────────────────────────
-      # Sunshine configuration
+      # Configure Sunshine
       # ─────────────────────────────────────────────
 
       - name: Configure Sunshine
@@ -159,7 +195,6 @@ jobs:
               ;;
 
             Windows)
-              # The MSI installation provides Sunshine.
               powershell.exe -NoProfile -Command \
                 "Start-Service Sunshine"
 
@@ -192,7 +227,7 @@ jobs:
 
 
       # ─────────────────────────────────────────────
-      # Keep GitHub Actions runner alive
+      # Keep runner alive
       # ─────────────────────────────────────────────
 
       - name: Keep Sunshine alive
