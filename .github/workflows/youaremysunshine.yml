@@ -148,12 +148,7 @@ jobs:
               sudo brew services start tailscale
 
               # Give launchd a moment to start tailscaled.
-              for i in {1..20}; do
-                if sudo tailscale status >/dev/null 2>&1; then
-                  break
-                fi
-                sleep 1
-              done
+              sleep 3
 
               sudo tailscale version
               ;;
@@ -173,18 +168,29 @@ jobs:
 
 
       # ─────────────────────────────────────────────
-      # Connect Tailscale using OAuth
+      # Connect Tailscale
       # ─────────────────────────────────────────────
 
       - name: Connect to Tailscale
         env:
-          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
         run: |
+          echo "Connecting this runner to Tailscale..."
+
           sudo tailscale up \
-            --client-id="$TS_OAUTH_CLIENT_ID" \
-            --client-secret="$TS_OAUTH_SECRET" \
+            --auth-key="$TS_OAUTH_SECRET" \
             --advertise-tags=tag:ci
+
+          sudo tailscale set \
+            --hostname="$GITHUB_RUN_ID"
+
+          sudo tailscale wait --timeout=30s
+
+          echo
+          echo "Tailscale connected."
+          echo "Host: $GITHUB_RUN_ID"
+          echo "IPv4: $(sudo tailscale ip -4)"
+          echo
 
 
       # ─────────────────────────────────────────────
@@ -254,18 +260,34 @@ jobs:
 
 
       # ─────────────────────────────────────────────
-      # Show Tailscale information
+      # Show connection information
       # ─────────────────────────────────────────────
 
       - name: Show connection information
         run: |
-          sudo tailscale set --hostname="$GITHUB_RUN_ID"
+          TAILSCALE_IP="$(sudo tailscale ip -4)"
 
-          echo "Tailscale IPv4:"
-          sudo tailscale ip -4
-          
-          echo "Tailscale hostname:"
+          echo
+          echo "=============================================="
+          echo "           REMOTE DESKTOP READY"
+          echo "=============================================="
+          echo
+          echo "Host:"
           echo "$GITHUB_RUN_ID"
+          echo
+          echo "Tailscale IPv4:"
+          echo "$TAILSCALE_IP"
+          echo
+          echo "Sunshine Web UI:"
+          echo "https://$TAILSCALE_IP:47990"
+          echo
+          echo "Open the Web UI above to finish Sunshine setup"
+          echo "and approve the Moonlight pairing PIN."
+          echo
+          echo "Then enter this host in Moonlight:"
+          echo "$TAILSCALE_IP"
+          echo
+          echo "=============================================="
 
 
       # ─────────────────────────────────────────────
