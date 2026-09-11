@@ -155,7 +155,7 @@ jobs:
                 sleep 1
               done
 
-              sudo tailscale status
+              sudo tailscale version
               ;;
 
             Windows)
