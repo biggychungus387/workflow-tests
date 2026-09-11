@@ -1,4 +1,5 @@
 name: Remote Desktop
+
 run-name: ${{ inputs.os }}
 
 defaults:
@@ -24,12 +25,11 @@ jobs:
     runs-on: ${{ inputs.os }}
 
     steps:
+      # ─────────────────────────────────────────────
+      # Linux virtual desktop + audio
+      # ─────────────────────────────────────────────
 
-      # ============================================================
-      # LINUX DISPLAY
-      # ============================================================
-
-      - name: Setup Linux display
+      - name: Setup Linux desktop
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -50,7 +50,6 @@ jobs:
           )
 
           export DISPLAY=":$DISPLAY_NUMBER"
-
           echo "DISPLAY=$DISPLAY" >> "$GITHUB_ENV"
 
           icewm-session \
@@ -61,13 +60,14 @@ jobs:
             --exit-idle-time=-1
 
 
-      # ============================================================
-      # INSTALL SUNSHINE
-      # ============================================================
+      # ─────────────────────────────────────────────
+      # Native Sunshine installation
+      # ─────────────────────────────────────────────
 
       - name: Install Sunshine
         run: |
           case "$RUNNER_OS" in
+
             Linux)
               curl -1sLf \
                 'https://dl.cloudsmith.io/public/lizardbyte/stable/cfg/setup/bash.deb.sh' \
@@ -75,11 +75,16 @@ jobs:
 
               sudo apt-get update
               sudo apt-get install -y sunshine
+
+              # We're using X11 capture rather than KMS.
+              sudo setcap -r "$(readlink -f "$(which sunshine)")"
               ;;
 
             macOS)
-              brew trust --formula lizardbyte/homebrew/sunshine-beta
-              brew install LizardByte/homebrew/sunshine
+              brew update
+              brew upgrade
+              brew tap LizardByte/homebrew
+              brew install sunshine
               ;;
 
             Windows)
@@ -92,57 +97,23 @@ jobs:
                 /quiet \
                 /norestart
               ;;
+
           esac
 
 
-      # ============================================================
-      # INSTALL TAILSCALE
-      # ============================================================
-
-      - name: Install Tailscale
-        run: |
-          case "$RUNNER_OS" in
-            Linux)
-              curl -fsSL https://tailscale.com/install.sh | sh
-              ;;
-
-            macOS)
-              brew install --quiet tailscale
-              ;;
-
-            Windows)
-              curl.exe -L \
-                -o "$RUNNER_TEMP/tailscale-setup.exe" \
-                "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe"
-
-              "$RUNNER_TEMP/tailscale-setup.exe" /quiet
-              ;;
-          esac
-
-
-      # ============================================================
-      # CONNECT TAILSCALE
-      # ============================================================
+      # ─────────────────────────────────────────────
+      # Tailscale
+      # ─────────────────────────────────────────────
 
       - name: Connect to Tailscale
-        env:
-          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
-        run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            TAILSCALE="C:/Program Files/Tailscale/tailscale.exe"
-          else
-            TAILSCALE="tailscale"
-          fi
-
-          "$TAILSCALE" up \
-            --auth-key="$TAILSCALE_AUTH_KEY" \
-            --hostname="github-actions-${{ github.run_id }}" \
-            --ephemeral
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
 
-      # ============================================================
-      # CONFIGURE SUNSHINE
-      # ============================================================
+      # ─────────────────────────────────────────────
+      # Sunshine configuration
+      # ─────────────────────────────────────────────
 
       - name: Configure Sunshine
         run: |
@@ -152,7 +123,7 @@ jobs:
               ;;
 
             Windows)
-              CONFIG_DIR="$PROGRAMFILES/Sunshine/config"
+              CONFIG_DIR="$(cygpath "$PROGRAMFILES")/Sunshine/config"
               ;;
           esac
 
@@ -170,55 +141,58 @@ jobs:
           fi
 
 
-      # ============================================================
-      # START SUNSHINE
-      # ============================================================
+      # ─────────────────────────────────────────────
+      # Start Sunshine
+      # ─────────────────────────────────────────────
 
       - name: Start Sunshine
         run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            powershell.exe -NoProfile -Command \
-              "Start-Process 'C:\Program Files\Sunshine\sunshine.exe' -WindowStyle Hidden"
-          else
-            sunshine \
-              > "$RUNNER_TEMP/sunshine.log" 2>&1 &
+          case "$RUNNER_OS" in
 
-            sleep 10
+            Linux|macOS)
+              sunshine \
+                > "$RUNNER_TEMP/sunshine.log" 2>&1 &
 
-            echo "========== Sunshine =========="
-            cat "$RUNNER_TEMP/sunshine.log" || true
-            echo "=============================="
-          fi
+              sleep 10
+
+              echo "========== Sunshine =========="
+              cat "$RUNNER_TEMP/sunshine.log" || true
+              echo "=============================="
+              ;;
+
+            Windows)
+              powershell.exe -NoProfile -Command \
+                "Start-Service Sunshine"
+
+              powershell.exe -NoProfile -Command \
+                "Start-Sleep -Seconds 10; Get-Service Sunshine"
+              ;;
+
+          esac
 
 
-      # ============================================================
-      # SHOW CONNECTION INFORMATION
-      # ============================================================
+      # ─────────────────────────────────────────────
+      # Connection information
+      # ─────────────────────────────────────────────
 
       - name: Show connection information
         run: |
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            TAILSCALE="C:/Program Files/Tailscale/tailscale.exe"
-          else
-            TAILSCALE="tailscale"
-          fi
-
           echo
           echo "=============================================="
           echo "           REMOTE DESKTOP READY"
           echo "=============================================="
           echo
           echo "Tailscale IPv4:"
-          "$TAILSCALE" ip -4
+          tailscale ip -4
           echo
           echo "Enter this IP into Moonlight."
           echo
           echo "=============================================="
 
 
-      # ============================================================
-      # KEEP RUNNER ALIVE
-      # ============================================================
+      # ─────────────────────────────────────────────
+      # Keep GitHub Actions alive
+      # ─────────────────────────────────────────────
 
       - name: Keep Sunshine alive
         run: |
