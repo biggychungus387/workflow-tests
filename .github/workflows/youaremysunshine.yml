@@ -77,9 +77,7 @@ jobs:
               ;;
 
             macOS)
-              brew tap LizardByte/homebrew
-              brew trust --formula LizardByte/homebrew/sunshine
-              brew install sunshine
+              brew install LizardByte/homebrew/sunshine
               ;;
 
             Windows)
