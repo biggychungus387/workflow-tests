@@ -77,12 +77,39 @@ jobs:
               sudo apt-get update
               sudo apt-get install -y sunshine
 
+              # We are using X11 capture rather than KMS.
               sudo setcap -r "$(readlink -f "$(which sunshine)")"
               ;;
 
             macOS)
-              brew trust --formula lizardbyte/homebrew/sunshine-beta
-              brew install LizardByte/homebrew/sunshine
+              ARCH="$(uname -m)"
+
+              if [[ "$ARCH" != "arm64" ]]; then
+                echo "Expected Apple Silicon macOS runner, got: $ARCH"
+                exit 1
+              fi
+
+              curl -fL \
+                -o "$RUNNER_TEMP/Sunshine.dmg" \
+                "https://github.com/LizardByte/Sunshine/releases/latest/download/Sunshine-macOS-arm64.dmg"
+
+              hdiutil attach \
+                "$RUNNER_TEMP/Sunshine.dmg" \
+                -nobrowse \
+                -readonly
+
+              MOUNT_POINT="$(
+                hdiutil info |
+                  awk '/Sunshine/ && /Volumes/ {print $3; exit}'
+              )"
+
+              sudo rm -rf "/Applications/Sunshine.app"
+
+              sudo cp -R \
+                "$MOUNT_POINT/Sunshine.app" \
+                "/Applications/Sunshine.app"
+
+              hdiutil detach "$MOUNT_POINT"
               ;;
 
             Windows)
@@ -108,12 +135,24 @@ jobs:
           case "$RUNNER_OS" in
 
             Linux)
-              curl -fsSL https://tailscale.com/install.sh | sh
+              curl -fsSL \
+                https://tailscale.com/install.sh \
+                | sh
+
+              sudo systemctl enable --now tailscaled
               ;;
 
             macOS)
-              brew install --quiet tailscale
-              brew services start tailscale
+              curl -fL \
+                -o "$RUNNER_TEMP/tailscale.pkg" \
+                "https://pkgs.tailscale.com/stable/Tailscale-latest.pkg"
+
+              sudo installer \
+                -pkg "$RUNNER_TEMP/tailscale.pkg" \
+                -target /
+
+              sudo launchctl kickstart \
+                -k system/com.tailscale.tailscaled
               ;;
 
             Windows)
@@ -131,7 +170,7 @@ jobs:
 
 
       # ─────────────────────────────────────────────
-      # Connect to Tailscale using OAuth
+      # Connect Tailscale using OAuth
       # ─────────────────────────────────────────────
 
       - name: Connect to Tailscale
@@ -183,15 +222,18 @@ jobs:
         run: |
           case "$RUNNER_OS" in
 
-            Linux|macOS)
+            Linux)
               sunshine \
                 > "$RUNNER_TEMP/sunshine.log" 2>&1 &
 
               sleep 10
+              ;;
 
-              echo "========== Sunshine =========="
-              cat "$RUNNER_TEMP/sunshine.log" || true
-              echo "=============================="
+            macOS)
+              /Applications/Sunshine.app/Contents/MacOS/sunshine \
+                > "$RUNNER_TEMP/sunshine.log" 2>&1 &
+
+              sleep 10
               ;;
 
             Windows)
@@ -199,16 +241,17 @@ jobs:
                 "Start-Service Sunshine"
 
               Start-Sleep -Seconds 10
-
-              powershell.exe -NoProfile -Command \
-                "Get-Service Sunshine"
               ;;
 
           esac
 
+          echo "========== Sunshine =========="
+          cat "$RUNNER_TEMP/sunshine.log" 2>/dev/null || true
+          echo "=============================="
+
 
       # ─────────────────────────────────────────────
-      # Connection information
+      # Show Tailscale information
       # ─────────────────────────────────────────────
 
       - name: Show connection information
@@ -219,7 +262,7 @@ jobs:
           echo "=============================================="
           echo
           echo "Tailscale IPv4:"
-          tailscale ip -4
+          sudo tailscale ip -4
           echo
           echo "Enter this IP into Moonlight."
           echo
