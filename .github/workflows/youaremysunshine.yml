@@ -76,13 +76,13 @@ jobs:
               sudo apt-get update
               sudo apt-get install -y sunshine
 
-              # We're using X11 capture rather than KMS.
+              # We're using X11 capture, not KMS.
               sudo setcap -r "$(readlink -f "$(which sunshine)")"
               ;;
 
             macOS)
-              brew tap LizardByte/homebrew
-              brew install sunshine
+              brew trust --formula lizardbyte/homebrew/sunshine-beta
+              brew install LizardByte/homebrew/sunshine
               ;;
 
             Windows)
@@ -159,11 +159,14 @@ jobs:
               ;;
 
             Windows)
+              # The MSI installation provides Sunshine.
               powershell.exe -NoProfile -Command \
                 "Start-Service Sunshine"
 
+              Start-Sleep -Seconds 10
+
               powershell.exe -NoProfile -Command \
-                "Start-Sleep -Seconds 10; Get-Service Sunshine"
+                "Get-Service Sunshine"
               ;;
 
           esac
@@ -189,7 +192,7 @@ jobs:
 
 
       # ─────────────────────────────────────────────
-      # Keep GitHub Actions alive
+      # Keep GitHub Actions runner alive
       # ─────────────────────────────────────────────
 
       - name: Keep Sunshine alive
