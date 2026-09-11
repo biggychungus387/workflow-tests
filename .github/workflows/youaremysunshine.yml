@@ -143,16 +143,19 @@ jobs:
               ;;
 
             macOS)
-              curl -fL \
-                -o "$RUNNER_TEMP/tailscale.pkg" \
-                "https://pkgs.tailscale.com/stable/Tailscale-latest.pkg"
+              brew install tailscale
 
-              sudo installer \
-                -pkg "$RUNNER_TEMP/tailscale.pkg" \
-                -target /
+              sudo brew services start tailscale
 
-              sudo launchctl kickstart \
-                -k system/com.tailscale.tailscaled
+              # Give launchd a moment to start tailscaled.
+              for i in {1..20}; do
+                if sudo tailscale status >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 1
+              done
+
+              sudo tailscale status
               ;;
 
             Windows)
