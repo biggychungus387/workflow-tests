@@ -1,4 +1,3 @@
-```yaml
 name: Remote Desktop
 run-name: ${{ inputs.os }}
 
@@ -233,5 +232,4 @@ jobs:
           echo "Sunshine host is running."
           echo "Waiting for Moonlight..."
 
-          sleep 21000
-```
+          sleep 21600
