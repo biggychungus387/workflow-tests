@@ -50,6 +50,7 @@ jobs:
           )
 
           export DISPLAY=":$DISPLAY_NUMBER"
+
           echo "DISPLAY=$DISPLAY" >> "$GITHUB_ENV"
 
           icewm-session \
@@ -106,24 +107,26 @@ jobs:
               ;;
 
             macOS)
-              brew install --quiet --cask tailscale
+              brew install --quiet tailscale
               ;;
 
             Windows)
               curl.exe -L \
-                -o "$RUNNER_TEMP/tailscale.exe" \
+                -o "$RUNNER_TEMP/tailscale-setup.exe" \
                 "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe"
 
-              "$RUNNER_TEMP/tailscale.exe" /quiet
+              "$RUNNER_TEMP/tailscale-setup.exe" /quiet
               ;;
           esac
 
 
       # ============================================================
-      # TAILSCALE LOGIN
+      # CONNECT TAILSCALE
       # ============================================================
 
-      - name: Login to Tailscale
+      - name: Connect to Tailscale
+        env:
+          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             TAILSCALE="C:/Program Files/Tailscale/tailscale.exe"
@@ -131,26 +134,17 @@ jobs:
             TAILSCALE="tailscale"
           fi
 
-          echo
-          echo "=============================================="
-          echo "          TAILSCALE LOGIN REQUIRED"
-          echo "=============================================="
-          echo
-          echo "Open the login URL printed below."
-          echo
-
-          "$TAILSCALE" up
-
-          echo
-          echo "Tailscale login completed."
+          "$TAILSCALE" up \
+            --auth-key="$TAILSCALE_AUTH_KEY" \
+            --hostname="github-actions-${{ github.run_id }}" \
+            --ephemeral
 
 
       # ============================================================
-      # SUNSHINE CONFIG
+      # CONFIGURE SUNSHINE
       # ============================================================
 
       - name: Configure Sunshine
-        shell: bash
         run: |
           case "$RUNNER_OS" in
             Linux|macOS)
@@ -183,23 +177,22 @@ jobs:
       - name: Start Sunshine
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            sunshine="C:/Program Files/Sunshine/sunshine.exe"
-
             powershell.exe -NoProfile -Command \
-              "Start-Process '$sunshine' -WindowStyle Hidden"
-
+              "Start-Process 'C:\Program Files\Sunshine\sunshine.exe' -WindowStyle Hidden"
           else
             sunshine \
               > "$RUNNER_TEMP/sunshine.log" 2>&1 &
 
             sleep 10
 
+            echo "========== Sunshine =========="
             cat "$RUNNER_TEMP/sunshine.log" || true
+            echo "=============================="
           fi
 
 
       # ============================================================
-      # SHOW CONNECTION INFO
+      # SHOW CONNECTION INFORMATION
       # ============================================================
 
       - name: Show connection information
