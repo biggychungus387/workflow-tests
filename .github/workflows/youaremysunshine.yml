@@ -175,9 +175,22 @@ jobs:
         env:
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
         run: |
+          echo "Connecting this runner to Tailscale..."
+
           sudo tailscale up \
             --auth-key="$TS_OAUTH_SECRET" \
             --advertise-tags=tag:ci
+
+          sudo tailscale set \
+            --hostname="$GITHUB_RUN_ID"
+
+          sudo tailscale wait --timeout=30s
+
+          echo
+          echo "Tailscale connected."
+          echo "Host: $GITHUB_RUN_ID"
+          echo "IPv4: $(sudo tailscale ip -4)"
+          echo
 
 
       # ─────────────────────────────────────────────
