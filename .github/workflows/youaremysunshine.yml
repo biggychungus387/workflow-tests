@@ -259,17 +259,13 @@ jobs:
 
       - name: Show connection information
         run: |
-          echo
-          echo "=============================================="
-          echo "           REMOTE DESKTOP READY"
-          echo "=============================================="
-          echo
+          sudo tailscale set --hostname="$GITHUB_RUN_ID"
+
           echo "Tailscale IPv4:"
           sudo tailscale ip -4
-          echo
-          echo "Enter this IP into Moonlight."
-          echo
-          echo "=============================================="
+          
+          echo "Tailscale hostname:"
+          echo "$GITHUB_RUN_ID"
 
 
       # ─────────────────────────────────────────────
