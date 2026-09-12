@@ -3,7 +3,7 @@ run-name: ${{ inputs.os }}
 
 defaults:
   run:
-    shell: bash --noprofile --norc -euo pipefail
+    shell: bash --noprofile --norc -euo pipefail {0}
 
 on:
   workflow_dispatch:
