@@ -1,10 +1,9 @@
 name: Remote Desktop
-
 run-name: ${{ inputs.os }}
 
 defaults:
   run:
-    shell: bash --noprofile --norc -euo pipefail {0}
+    shell: bash --noprofile --norc -euo pipefail
 
 on:
   workflow_dispatch:
@@ -25,16 +24,10 @@ jobs:
     runs-on: ${{ inputs.os }}
 
     steps:
-
-      # ─────────────────────────────────────────────
-      # Linux virtual desktop + audio
-      # ─────────────────────────────────────────────
-
       - name: Setup Linux desktop
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-
           sudo apt-get install -y --no-install-recommends \
             xvfb \
             icewm \
@@ -42,8 +35,7 @@ jobs:
             pulseaudio-utils
 
           read -r DISPLAY_NUMBER < <(
-            Xvfb \
-              -displayfd 1 \
+            Xvfb -displayfd 1 \
               -screen 0 1920x1080x24 \
               +extension XTEST \
               +extension XFIXES \
@@ -53,22 +45,13 @@ jobs:
           export DISPLAY=":$DISPLAY_NUMBER"
           echo "DISPLAY=$DISPLAY" >> "$GITHUB_ENV"
 
-          icewm-session \
-            > "$RUNNER_TEMP/icewm.log" 2>&1 &
+          icewm-session > "$RUNNER_TEMP/icewm.log" 2>&1 &
 
-          pulseaudio \
-            --start \
-            --exit-idle-time=-1
-
-
-      # ─────────────────────────────────────────────
-      # Install Sunshine
-      # ─────────────────────────────────────────────
+          pulseaudio --start --exit-idle-time=-1
 
       - name: Install Sunshine
         run: |
           case "$RUNNER_OS" in
-
             Linux)
               curl -1sLf \
                 'https://dl.cloudsmith.io/public/lizardbyte/stable/cfg/setup/bash.deb.sh' \
@@ -77,7 +60,6 @@ jobs:
               sudo apt-get update
               sudo apt-get install -y sunshine
 
-              # We are using X11 capture rather than KMS.
               sudo setcap -r "$(readlink -f "$(which sunshine)")"
               ;;
 
@@ -100,11 +82,10 @@ jobs:
 
               MOUNT_POINT="$(
                 hdiutil info |
-                  awk '/Sunshine/ && /Volumes/ {print $3; exit}'
+                awk '/Sunshine/ && /Volumes/ {print $3; exit}'
               )"
 
               sudo rm -rf "/Applications/Sunshine.app"
-
               sudo cp -R \
                 "$MOUNT_POINT/Sunshine.app" \
                 "/Applications/Sunshine.app"
@@ -122,34 +103,20 @@ jobs:
                 /quiet \
                 /norestart
               ;;
-
           esac
-
-
-      # ─────────────────────────────────────────────
-      # Install Tailscale
-      # ─────────────────────────────────────────────
 
       - name: Install Tailscale
         run: |
           case "$RUNNER_OS" in
-
             Linux)
-              curl -fsSL \
-                https://tailscale.com/install.sh \
-                | sh
-
+              curl -fsSL https://tailscale.com/install.sh | sh
               sudo systemctl enable --now tailscaled
               ;;
 
             macOS)
               brew install tailscale
-
               sudo brew services start tailscale
-
-              # Give launchd a moment to start tailscaled.
               sleep 3
-
               sudo tailscale version
               ;;
 
@@ -163,13 +130,7 @@ jobs:
                 /quiet \
                 /norestart
               ;;
-
           esac
-
-
-      # ─────────────────────────────────────────────
-      # Connect Tailscale
-      # ─────────────────────────────────────────────
 
       - name: Connect to Tailscale
         env:
@@ -181,21 +142,14 @@ jobs:
             --auth-key="$TS_OAUTH_SECRET" \
             --advertise-tags=tag:ci
 
-          sudo tailscale set \
-            --hostname="$GITHUB_RUN_ID"
-
           sudo tailscale wait --timeout=30s
 
-          echo
+          TAILSCALE_IP="$(sudo tailscale ip -4)"
+
+          echo "TAILSCALE_IP=$TAILSCALE_IP" >> "$GITHUB_ENV"
+
           echo "Tailscale connected."
-          echo "Host: $GITHUB_RUN_ID"
-          echo "IPv4: $(sudo tailscale ip -4)"
-          echo
-
-
-      # ─────────────────────────────────────────────
-      # Configure Sunshine
-      # ─────────────────────────────────────────────
+          echo "IPv4: $TAILSCALE_IP"
 
       - name: Configure Sunshine
         run: |
@@ -211,37 +165,29 @@ jobs:
 
           mkdir -p "$CONFIG_DIR"
 
-          cat > "$CONFIG_DIR/sunshine.conf" <<'EOF'
+          cat > "$CONFIG_DIR/sunshine.conf" <<EOF
           encoder = software
           sw_preset = ultrafast
           sw_tune = zerolatency
           stream_audio = enabled
+          csrf_allowed_origins = https://$TAILSCALE_IP:47990
           EOF
 
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             echo "capture = x11" >> "$CONFIG_DIR/sunshine.conf"
           fi
 
-
-      # ─────────────────────────────────────────────
-      # Start Sunshine
-      # ─────────────────────────────────────────────
-
       - name: Start Sunshine
         run: |
           case "$RUNNER_OS" in
-
             Linux)
-              sunshine \
-                > "$RUNNER_TEMP/sunshine.log" 2>&1 &
-
+              sunshine > "$RUNNER_TEMP/sunshine.log" 2>&1 &
               sleep 10
               ;;
 
             macOS)
               /Applications/Sunshine.app/Contents/MacOS/sunshine \
                 > "$RUNNER_TEMP/sunshine.log" 2>&1 &
-
               sleep 10
               ;;
 
@@ -251,29 +197,18 @@ jobs:
 
               Start-Sleep -Seconds 10
               ;;
-
           esac
 
           echo "========== Sunshine =========="
           cat "$RUNNER_TEMP/sunshine.log" 2>/dev/null || true
           echo "=============================="
 
-
-      # ─────────────────────────────────────────────
-      # Show connection information
-      # ─────────────────────────────────────────────
-
       - name: Show connection information
         run: |
-          TAILSCALE_IP="$(sudo tailscale ip -4)"
-
           echo
           echo "=============================================="
           echo "           REMOTE DESKTOP READY"
           echo "=============================================="
-          echo
-          echo "Host:"
-          echo "$GITHUB_RUN_ID"
           echo
           echo "Tailscale IPv4:"
           echo "$TAILSCALE_IP"
@@ -281,22 +216,12 @@ jobs:
           echo "Sunshine Web UI:"
           echo "https://$TAILSCALE_IP:47990"
           echo
-          echo "Open the Web UI above to finish Sunshine setup"
-          echo "and approve the Moonlight pairing PIN."
-          echo
-          echo "Then enter this host in Moonlight:"
-          echo "$TAILSCALE_IP"
+          echo "Then pair Moonlight through the Web UI."
           echo
           echo "=============================================="
 
-
-      # ─────────────────────────────────────────────
-      # Keep runner alive
-      # ─────────────────────────────────────────────
-
-      - name: Keep Sunshine alive
+      - name: Keep runner alive
         run: |
           echo "Sunshine host is running."
           echo "Waiting for Moonlight..."
-
           sleep 21600
