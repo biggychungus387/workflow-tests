@@ -24,8 +24,9 @@ jobs:
         run: |
           sudo tailscale set --advertise-exit-node
 
-      - name: Keep runner alive
+      - name: Print exit node command
         run: |
-          echo "Exit node is running"
-          tailscale status
-          sleep 6h
+          EXIT_NODE=$(tailscale ip -1)
+          echo "Run this on your Debian PC:"
+          echo "sudo tailscale set --exit-node=$EXIT_NODE"
+          sleep infinity
