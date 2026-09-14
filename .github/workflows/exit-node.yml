@@ -1,0 +1,31 @@
+name: Tailscale Exit Node
+
+on:
+  workflow_dispatch:
+
+jobs:
+  exit-node:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-runner
+
+      - name: Enable IP forwarding
+        run: |
+          sudo sysctl -w net.ipv4.ip_forward=1
+          sudo sysctl -w net.ipv6.conf.all.forwarding=1
+
+      - name: Advertise as exit node
+        run: |
+          sudo tailscale set --advertise-exit-node
+
+      - name: Keep runner alive
+        run: |
+          echo "Exit node is running"
+          tailscale status
+          sleep 6h
