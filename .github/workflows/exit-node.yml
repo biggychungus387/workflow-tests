@@ -28,5 +28,5 @@ jobs:
         run: |
           EXIT_NODE=$(tailscale ip -1)
           echo "Run this on your Debian PC:"
-          echo "sudo tailscale set --exit-node=$EXIT_NODE"
+          echo "tailscale set --exit-node=$EXIT_NODE"
           sleep infinity
